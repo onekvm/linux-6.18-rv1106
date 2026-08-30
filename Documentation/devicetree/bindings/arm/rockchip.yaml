@@ -755,6 +755,11 @@ properties:
           - const: luckfox,core3576
           - const: rockchip,rk3576
 
+      - description: Luckfox Pico / PicoKVM (RV1106)
+        items:
+          - const: luckfox,pico
+          - const: rockchip,rv1106
+
       - description: Lunzn FastRhino R66S / R68S
         items:
           - enum:

@@ -1,0 +1,24 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+/*
+ * Copyright (c) 2026 OneKVM
+ *
+ * Luckfox Pico / PicoKVM (RV1106G3) UART bring-up board.
+ */
+
+/dts-v1/;
+
+#include "rv1106.dtsi"
+
+/ {
+	model = "Luckfox Pico / PicoKVM bring-up";
+	compatible = "luckfox,pico", "rockchip,rv1106";
+
+	chosen {
+		stdout-path = "serial2:1500000n8";
+	};
+
+	memory@0 {
+		device_type = "memory";
+		reg = <0x00000000 0x10000000>;
+	};
+};
