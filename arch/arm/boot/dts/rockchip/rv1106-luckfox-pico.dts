@@ -14,8 +14,14 @@
 	model = "Luckfox PicoKVM (OneKVM bring-up)";
 	compatible = "luckfox,pico-kvm", "luckfox,pico", "rockchip,rv1106";
 
+	aliases {
+		/* Only UART2 is enabled; 8250 enumerates it as ttyS0. */
+		serial0 = &uart2;
+		serial2 = &uart2;
+	};
+
 	chosen {
-		stdout-path = "serial2:115200n8";
+		stdout-path = "serial0:115200n8";
 	};
 
 	memory@0 {
