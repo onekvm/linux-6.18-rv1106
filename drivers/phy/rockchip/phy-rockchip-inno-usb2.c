@@ -229,6 +229,7 @@ struct rockchip_usb2phy_port {
  * @dev: pointer to device.
  * @grf: General Register Files regmap.
  * @usbgrf: USB General Register Files regmap.
+ * @phy_base: USB PHY MMIO regmap (standalone PHYs such as RV1106).
  * @clks: array of phy input clocks.
  * @clk480m: clock struct of phy output clk.
  * @clk480m_hw: clock struct of phy output clk management.
@@ -247,6 +248,7 @@ struct rockchip_usb2phy {
 	struct device	*dev;
 	struct regmap	*grf;
 	struct regmap	*usbgrf;
+	struct regmap	*phy_base;
 	struct clk_bulk_data	*clks;
 	struct clk	*clk480m;
 	struct clk_hw	clk480m_hw;
@@ -1353,7 +1355,16 @@ static int rockchip_usb2phy_probe(struct platform_device *pdev)
 	if (!rphy)
 		return -ENOMEM;
 
-	if (!dev->parent || !dev->parent->of_node) {
+	/*
+	 * Standalone PHYs (RV1106 and similar) carry rockchip,usbgrf and their
+	 * own MMIO; child-of-GRF PHYs share the parent syscon as phy_base.
+	 * Matches mainline probe layout needed by rv1106_usb2phy_tuning().
+	 */
+	if (!dev->parent || !dev->parent->of_node ||
+	    of_property_present(np, "rockchip,usbgrf")) {
+		rphy->phy_base = device_node_to_regmap(np);
+		if (IS_ERR(rphy->phy_base))
+			return PTR_ERR(rphy->phy_base);
 		rphy->grf = syscon_regmap_lookup_by_phandle(np, "rockchip,usbgrf");
 		if (IS_ERR(rphy->grf)) {
 			dev_err(dev, "failed to locate usbgrf\n");
@@ -1363,6 +1374,7 @@ static int rockchip_usb2phy_probe(struct platform_device *pdev)
 		rphy->grf = syscon_node_to_regmap(dev->parent->of_node);
 		if (IS_ERR(rphy->grf))
 			return PTR_ERR(rphy->grf);
+		rphy->phy_base = rphy->grf;
 	}
 
 	if (of_device_is_compatible(np, "rockchip,rv1108-usb2phy")) {
