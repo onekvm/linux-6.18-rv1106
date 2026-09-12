@@ -1291,6 +1291,7 @@ static inline void rockchip_register_softrst(struct device_node *np,
 	return rockchip_register_softrst_lut(np, NULL, num_regs, base, flags);
 }
 
+void rv1106_rst_init(struct device_node *np, void __iomem *reg_base);
 void rk3528_rst_init(struct device_node *np, void __iomem *reg_base);
 void rk3562_rst_init(struct device_node *np, void __iomem *reg_base);
 void rk3576_rst_init(struct device_node *np, void __iomem *reg_base);
