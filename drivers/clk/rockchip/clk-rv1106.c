@@ -1034,7 +1034,6 @@ static int __init clk_rv1106_probe(struct platform_device *pdev)
 	struct rockchip_clk_provider *ctx;
 	unsigned long clk_nr;
 	void __iomem *reg_base;
-	int ret;
 
 	clk_nr = rockchip_clk_find_max_clk_id(rv1106_clk_branches,
 					      ARRAY_SIZE(rv1106_clk_branches)) + 1;
