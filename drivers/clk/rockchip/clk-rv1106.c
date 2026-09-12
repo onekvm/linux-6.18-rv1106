@@ -8,6 +8,7 @@
 #include <linux/of.h>
 #include <linux/platform_device.h>
 #include <linux/regmap.h>
+#include <linux/slab.h>
 #include <dt-bindings/clock/rockchip,rv1106-cru.h>
 #include "clk.h"
 
@@ -1065,18 +1066,20 @@ static int __init clk_rv1106_probe(struct platform_device *pdev)
 				       ARRAY_SIZE(rv1106_clk_branches));
 
 	/*
-	 * The MMC drive and sample phase clocks have their control
-	 * registers in the GRF region, so they can only be provided when
-	 * the rockchip,grf property points at a valid syscon.
+	 * MMC drive/sample phase clocks live in the GRF. 6.18.45 has no
+	 * rockchip_clk_add_grf(); register them via aux_grf_table like rk3528.
 	 */
 	if (!IS_ERR(ctx->grf)) {
-		ret = rockchip_clk_add_grf(ctx, ctx->grf, grf_type_sys);
-		if (ret)
-			dev_err(dev, "failed to add grf: %d\n", ret);
-		else
-			rockchip_clk_register_branches(ctx,
-					rv1106_grf_clk_branches,
-					ARRAY_SIZE(rv1106_grf_clk_branches));
+		struct rockchip_aux_grf *grf_e;
+
+		grf_e = devm_kzalloc(dev, sizeof(*grf_e), GFP_KERNEL);
+		if (!grf_e)
+			return -ENOMEM;
+		grf_e->grf = ctx->grf;
+		grf_e->type = grf_type_sys;
+		hash_add(ctx->aux_grf_table, &grf_e->node, grf_type_sys);
+		rockchip_clk_register_branches(ctx, rv1106_grf_clk_branches,
+					       ARRAY_SIZE(rv1106_grf_clk_branches));
 	}
 
 	rv1106_rst_init(np, reg_base);

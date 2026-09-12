@@ -1331,8 +1331,6 @@ static const struct rk_gmac_ops rv1106_ops = {
 	.set_speed = rv1106_set_speed,
 	.integrated_phy_powerup = rv1106_integrated_phy_powerup,
 	.integrated_phy_powerdown = rv1106_integrated_phy_powerdown,
-
-	.supports_rmii = true,
 };
 
 #define RV1108_GRF_GMAC_CON0		0X0900
