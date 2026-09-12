@@ -1587,6 +1587,38 @@ static int rk3588_usb2phy_tuning(struct rockchip_usb2phy *rphy)
 	return ret;
 }
 
+static int rv1106_usb2phy_tuning(struct rockchip_usb2phy *rphy)
+{
+	int ret;
+
+	/* Always enable pre-emphasis in SOF & EOP & chirp & non-chirp state */
+	ret = regmap_update_bits(rphy->phy_base, 0x30, GENMASK(2, 0), 0x07);
+
+	/* Set Tx HS pre_emphasize strength to 3'b001 */
+	ret |= regmap_update_bits(rphy->phy_base, 0x40, GENMASK(5, 3), 0x01 << 3);
+
+	/* Set RX Squelch trigger point configure to 4'b0000 (112.5 mV) */
+	ret |= regmap_update_bits(rphy->phy_base, 0x64, GENMASK(6, 3), 0x00 << 3);
+
+	/* Turn off differential receiver by default to save power */
+	ret |= regmap_update_bits(rphy->phy_base, 0x100, BIT(6), 0);
+
+	/* Set 45ohm HS ODT value to 5'b10111 to increase driver strength */
+	ret |= regmap_update_bits(rphy->phy_base, 0x11c, GENMASK(4, 0), 0x17);
+
+	/* Set Tx HS eye height tuning to 3'b011 (462 mV) */
+	ret |= regmap_update_bits(rphy->phy_base, 0x124, GENMASK(4, 2), 0x03 << 2);
+
+	/* Bypass Squelch detector calibration */
+	ret |= regmap_update_bits(rphy->phy_base, 0x1a4, GENMASK(7, 4), 0x01 << 4);
+	ret |= regmap_update_bits(rphy->phy_base, 0x1b4, GENMASK(7, 4), 0x01 << 4);
+
+	/* Set HS disconnect detect mode to single ended detect mode */
+	ret |= regmap_update_bits(rphy->phy_base, 0x70, BIT(2), BIT(2));
+
+	return ret;
+}
+
 static const struct rockchip_usb2phy_cfg rk3036_phy_cfgs[] = {
 	{
 		.reg = 0x17c,
@@ -2243,6 +2275,49 @@ static const struct rockchip_usb2phy_cfg rk3588_phy_cfgs[] = {
 	{ /* sentinel */ }
 };
 
+static const struct rockchip_usb2phy_cfg rv1106_phy_cfgs[] = {
+	{
+		.reg = 0xff3e0000,
+		.num_ports	= 1,
+		.phy_tuning	= rv1106_usb2phy_tuning,
+		.clkout_ctl	= { 0x0058, 4, 4, 1, 0 },
+		.port_cfgs	= {
+			[USB2PHY_PORT_OTG] = {
+				.phy_sus	= { 0x0050, 8, 0, 0, 0x1d1 },
+				.bvalid_det_en	= { 0x0100, 2, 2, 0, 1 },
+				.bvalid_det_st	= { 0x0104, 2, 2, 0, 1 },
+				.bvalid_det_clr = { 0x0108, 2, 2, 0, 1 },
+				.idfall_det_en	= { 0x0100, 5, 5, 0, 1 },
+				.idfall_det_st	= { 0x0104, 5, 5, 0, 1 },
+				.idfall_det_clr = { 0x0108, 5, 5, 0, 1 },
+				.idrise_det_en	= { 0x0100, 4, 4, 0, 1 },
+				.idrise_det_st	= { 0x0104, 4, 4, 0, 1 },
+				.idrise_det_clr = { 0x0108, 4, 4, 0, 1 },
+				.ls_det_en	= { 0x0100, 0, 0, 0, 1 },
+				.ls_det_st	= { 0x0104, 0, 0, 0, 1 },
+				.ls_det_clr	= { 0x0108, 0, 0, 0, 1 },
+				.utmi_avalid	= { 0x0060, 10, 10, 0, 1 },
+				.utmi_bvalid	= { 0x0060, 9, 9, 0, 1 },
+				.utmi_id	= { 0x0060, 6, 6, 0, 1 },
+				.utmi_ls	= { 0x0060, 5, 4, 0, 1 },
+			},
+		},
+		.chg_det = {
+			.opmode		= { 0x0050, 8, 0, 0, 0x1d7 },
+			.cp_det		= { 0x0060, 13, 13, 0, 1 },
+			.dcp_det	= { 0x0060, 12, 12, 0, 1 },
+			.dp_det		= { 0x0060, 14, 14, 0, 1 },
+			.idm_sink_en	= { 0x0058, 8, 8, 0, 1 },
+			.idp_sink_en	= { 0x0058, 7, 7, 0, 1 },
+			.idp_src_en	= { 0x0058, 9, 9, 0, 1 },
+			.rdm_pdwn_en	= { 0x0058, 10, 10, 0, 1 },
+			.vdm_src_en	= { 0x0058, 12, 12, 0, 1 },
+			.vdp_src_en	= { 0x0058, 11, 11, 0, 1 },
+		},
+	},
+	{ /* sentinel */ }
+};
+
 static const struct rockchip_usb2phy_cfg rv1108_phy_cfgs[] = {
 	{
 		.reg = 0x100,
@@ -2298,6 +2373,7 @@ static const struct of_device_id rockchip_usb2phy_dt_match[] = {
 	{ .compatible = "rockchip,rk3568-usb2phy", .data = &rk3568_phy_cfgs },
 	{ .compatible = "rockchip,rk3576-usb2phy", .data = &rk3576_phy_cfgs },
 	{ .compatible = "rockchip,rk3588-usb2phy", .data = &rk3588_phy_cfgs },
+	{ .compatible = "rockchip,rv1106-usb2phy", .data = &rv1106_phy_cfgs },
 	{ .compatible = "rockchip,rv1108-usb2phy", .data = &rv1108_phy_cfgs },
 	{}
 };

@@ -40,6 +40,7 @@ properties:
               - rockchip,rk3568-spi
               - rockchip,rk3576-spi
               - rockchip,rk3588-spi
+              - rockchip,rv1106-spi
               - rockchip,rv1126-spi
           - const: rockchip,rk3066-spi
 
@@ -50,14 +51,18 @@ properties:
     maxItems: 1
 
   clocks:
+    minItems: 2
     items:
       - description: transfer-clock
       - description: peripheral clock
+      - description: slave clock
 
   clock-names:
+    minItems: 2
     items:
       - const: spiclk
       - const: apb_pclk
+      - const: sclk_in
 
   dmas:
     items:

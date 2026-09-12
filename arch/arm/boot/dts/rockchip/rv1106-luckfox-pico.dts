@@ -2,7 +2,8 @@
 /*
  * Copyright (c) 2026 OneKVM
  *
- * Luckfox Pico / PicoKVM (RV1106G3) UART bring-up board.
+ * Luckfox PicoKVM (RV1106G3) — lab NFS bring-up board (picokvm-139).
+ * Console baud matches stock U-Boot (115200), not the common Luckfox 1.5M.
  */
 
 /dts-v1/;
@@ -10,15 +11,23 @@
 #include "rv1106.dtsi"
 
 / {
-	model = "Luckfox Pico / PicoKVM bring-up";
-	compatible = "luckfox,pico", "rockchip,rv1106";
+	model = "Luckfox PicoKVM (OneKVM bring-up)";
+	compatible = "luckfox,pico-kvm", "luckfox,pico", "rockchip,rv1106";
 
 	chosen {
-		stdout-path = "serial2:1500000n8";
+		stdout-path = "serial2:115200n8";
 	};
 
 	memory@0 {
 		device_type = "memory";
 		reg = <0x00000000 0x10000000>;
 	};
+};
+
+&uart2 {
+	status = "okay";
+};
+
+&gmac {
+	status = "okay";
 };

@@ -13,10 +13,13 @@ maintainers:
 
 properties:
   compatible:
-    enum:
-      - rockchip,rk3576-rng
-      - rockchip,rk3588-rng
-
+    oneOf:
+      - const: rockchip,rk3576-rng
+      - const: rockchip,rk3588-rng
+      - items:
+          - enum:
+              - rockchip,rv1106-rng
+          - const: rockchip,rk3588-rng
   reg:
     maxItems: 1
 

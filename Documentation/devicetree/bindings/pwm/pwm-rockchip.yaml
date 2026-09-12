@@ -34,11 +34,19 @@ properties:
               - rockchip,rk3562-pwm
               - rockchip,rk3568-pwm
               - rockchip,rk3588-pwm
+              - rockchip,rv1106-pwm
               - rockchip,rv1126-pwm
           - const: rockchip,rk3328-pwm
 
   reg:
     maxItems: 1
+
+  interrupts:
+    minItems: 1
+    maxItems: 2
+    description:
+      Some PWM channels (e.g. on rockchip,rv1106-pwm) additionally
+      support capture mode and use a second interrupt for that.
 
   clocks:
     minItems: 1

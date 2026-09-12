@@ -30,6 +30,7 @@ select:
           - rockchip,rk3568-dwc3
           - rockchip,rk3576-dwc3
           - rockchip,rk3588-dwc3
+          - rockchip,rv1106-dwc3
   required:
     - compatible
 
@@ -42,6 +43,7 @@ properties:
           - rockchip,rk3568-dwc3
           - rockchip,rk3576-dwc3
           - rockchip,rk3588-dwc3
+          - rockchip,rv1106-dwc3
       - const: snps,dwc3
 
   reg:
@@ -56,10 +58,11 @@ properties:
       - description:
           Controller reference clock, must to be 24 MHz
       - description:
-          Controller suspend clock, must to be 24 MHz or 32 KHz
+          Controller suspend clock (must to be 24 MHz or 32 KHz) or
+          Master/Core clock
       - description:
           Master/Core clock, must to be >= 62.5 MHz for SS
-          operation and >= 30MHz for HS operation
+          operation and >= 30MHz for HS operation, or UTMI clock
       - description:
           Controller grf clock OR UTMI clock
       - description:
@@ -69,8 +72,12 @@ properties:
     minItems: 3
     items:
       - const: ref_clk
-      - const: suspend_clk
-      - const: bus_clk
+      - enum:
+          - suspend_clk
+          - bus_clk
+      - enum:
+          - bus_clk
+          - utmi
       - enum:
           - grf_clk
           - utmi
@@ -142,7 +149,10 @@ allOf:
         clocks:
           maxItems: 3
         clock-names:
-          maxItems: 3
+          items:
+            - const: ref_clk
+            - const: suspend_clk
+            - const: bus_clk
   - if:
       properties:
         compatible:
@@ -158,6 +168,21 @@ allOf:
             - const: bus_clk
             - const: utmi
             - const: pipe
+  - if:
+      properties:
+        compatible:
+          contains:
+            const: rockchip,rv1106-dwc3
+    then:
+      properties:
+        clocks:
+          minItems: 3
+          maxItems: 3
+        clock-names:
+          items:
+            - const: ref_clk
+            - const: bus_clk
+            - const: utmi
 
 examples:
   - |

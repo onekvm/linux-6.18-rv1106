@@ -42,6 +42,7 @@ properties:
               - rockchip,rk3568-i2c
               - rockchip,rk3576-i2c
               - rockchip,rk3588-i2c
+              - rockchip,rv1106-i2c
               - rockchip,rv1126-i2c
           - const: rockchip,rk3399-i2c
 
