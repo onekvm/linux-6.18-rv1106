@@ -716,6 +716,19 @@ config CRYPTO_DEV_ROCKCHIP_DEBUG
 	  This will create /sys/kernel/debug/rk3288_crypto/stats for displaying
 	  the number of requests per algorithm and other internal stats.
 
+config CRYPTO_DEV_ROCKCHIP_V3
+	tristate "Rockchip Crypto Engine v3 (RV1106 AES-GCM)"
+	depends on OF && ARCH_ROCKCHIP
+	select CRYPTO_AES
+	select CRYPTO_GCM
+	select CRYPTO_LIB_AES
+	help
+	  RV1106 / RK3528 / RK3562 Crypto Engine v3. Programs AES-GCM
+	  through the vendor LLI DMA path and exports
+	  /dev/onekvm-crypto-offload for OneKVM SRTP TX.
+
+	  If built as a module, the module is called rk_crypto_v3.
+
 config CRYPTO_DEV_TEGRA
 	tristate "Enable Tegra Security Engine"
 	depends on TEGRA_HOST1X
