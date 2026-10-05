@@ -153,6 +153,8 @@ static struct rockchip_pll_rate_table rv1106_pll_rates[] = {
 #define RV1106_DIV_PCLK_DBG_SHIFT	0
 #define RV1106_CORE_SEL_MASK		0x3
 #define RV1106_CORE_SEL_SHIFT		5
+#define RV1106_ALT_DIV_MASK		0x1f
+#define RV1106_ALT_DIV_SHIFT		0
 
 #define RV1106_CLKSEL0(_aclk_core)					\
 {									\
@@ -175,6 +177,18 @@ static struct rockchip_pll_rate_table rv1106_pll_rates[] = {
 			     RV1106_CORE_SEL_SHIFT),			\
 }
 
+#define RV1106_CLKSEL3(_alt_div)					\
+{									\
+	.reg = RV1106_CORECLKSEL_CON(0),				\
+	.val = HIWORD_UPDATE(_alt_div, RV1106_ALT_DIV_MASK,		\
+			     RV1106_ALT_DIV_SHIFT),			\
+}
+
+/*
+ * Vendor 5.10: park on GPLL (CORE_SEL=2, alt_div=1) while APLL retunes,
+ * then CORE_SEL=cpu_pvtpll for ≥816. mux_core_main stays 0 so the 6.18
+ * armclk helper keeps APLL as the CCF parent (5.10 passed APLL by pointer).
+ */
 #define RV1106_CPUCLK_RATE(_prate, _aclk_core, _pclk_dbg, _is_pvtpll)	\
 {									\
 	.prate = _prate,						\
@@ -182,8 +196,13 @@ static struct rockchip_pll_rate_table rv1106_pll_rates[] = {
 		RV1106_CLKSEL0(_aclk_core),				\
 		RV1106_CLKSEL1(_pclk_dbg),				\
 	},								\
+	.pre_muxs = {							\
+		RV1106_CLKSEL3(1),					\
+		RV1106_CLKSEL2(2),					\
+	},								\
 	.post_muxs = {							\
 		RV1106_CLKSEL2(_is_pvtpll),				\
+		RV1106_CLKSEL3(0),					\
 	},								\
 }
 
@@ -205,12 +224,13 @@ static struct rockchip_cpuclk_rate_table rv1106_cpuclk_rates[] __initdata = {
 	RV1106_CPUCLK_RATE(1272000000, 2, 5, 1),
 	RV1106_CPUCLK_RATE(1248000000, 2, 5, 1),
 	RV1106_CPUCLK_RATE(1224000000, 2, 5, 1),
+	/* Datasheet 1.2 G is the ring. 816 and below stay on APLL. */
 	RV1106_CPUCLK_RATE(1200000000, 2, 5, 1),
-	RV1106_CPUCLK_RATE(1104000000, 2, 5, 1),
-	RV1106_CPUCLK_RATE(1096000000, 2, 5, 1),
-	RV1106_CPUCLK_RATE(1008000000, 1, 5, 1),
-	RV1106_CPUCLK_RATE(912000000, 1, 5, 1),
-	RV1106_CPUCLK_RATE(816000000, 1, 3, 1),
+	RV1106_CPUCLK_RATE(1104000000, 2, 5, 0),
+	RV1106_CPUCLK_RATE(1096000000, 2, 5, 0),
+	RV1106_CPUCLK_RATE(1008000000, 1, 5, 0),
+	RV1106_CPUCLK_RATE(912000000, 1, 5, 0),
+	RV1106_CPUCLK_RATE(816000000, 1, 3, 0),
 	RV1106_CPUCLK_RATE(696000000, 1, 3, 0),
 	RV1106_CPUCLK_RATE(600000000, 1, 3, 0),
 	RV1106_CPUCLK_RATE(408000000, 1, 1, 0),

@@ -2,6 +2,16 @@
 #
 # Phy drivers for Rockchip platforms
 #
+config PHY_ROCKCHIP_CSI2_DPHY
+	tristate "Rockchip CSI2 D-PHY Driver"
+	depends on VIDEO_DEV && VIDEO_V4L2_SUBDEV_API
+	depends on ARCH_ROCKCHIP && OF
+	select GENERIC_PHY
+	select V4L2_FWNODE
+	select V4L2_ASYNC
+	help
+	  Enable this to support the Rockchip CSI2 DPHY (RV1106 VICAP).
+
 config PHY_ROCKCHIP_DP
 	tristate "Rockchip Display Port PHY Driver"
 	depends on ARCH_ROCKCHIP && OF

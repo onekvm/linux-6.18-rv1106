@@ -9,6 +9,10 @@
 /dts-v1/;
 
 #include "rv1106.dtsi"
+#include <dt-bindings/clock/rockchip,rv1106-cru.h>
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/media/video-interfaces.h>
+#include <dt-bindings/pinctrl/rockchip.h>
 
 / {
 	model = "Luckfox PicoKVM (OneKVM bring-up)";
@@ -18,10 +22,31 @@
 		/* Only UART2 is enabled; 8250 enumerates it as ttyS0. */
 		serial0 = &uart2;
 		serial2 = &uart2;
+		gpio0 = &gpio0;
+		gpio1 = &gpio1;
+		gpio2 = &gpio2;
+		gpio3 = &gpio3;
+		gpio4 = &gpio4;
+		rkcif_mipi_lvds0 = &rkcif_mipi_lvds;
+		/*
+		 * Stock FIT aliases: eMMC host is mmc0, SD is mmc1 even when
+		 * eMMC has no card (no mmcblk0). Keep mmcblk1 so U-Boot
+		 * root=/dev/mmcblk1p9 / blkdevparts=mmcblk1:... still match.
+		 */
+		mmc0 = &emmc;
+		mmc1 = &sdmmc;
 	};
 
 	chosen {
 		stdout-path = "serial0:115200n8";
+		/*
+		 * Linux uses this appended DTB, not the FIT fdt U-Boot
+		 * leaves at 0x00c00000, so blkdevparts has to be here
+		 * (the card has no MBR). cma=66M skips the 32 MiB DT
+		 * fallback; 66 MiB is pageblock-aligned (68 MiB). Do not
+		 * put 0x4200000 in the CMA cell.
+		 */
+		bootargs = "root=/dev/mmcblk1p9 rootfstype=ext4 rw rootwait console=ttyS0,115200 earlycon=uart8250,mmio32,0xff4c0000 systemd.gpt_auto=0 cma=66M storagemedia=sd blkdevparts=mmcblk1:32K(env),512K@32K(idblock),512K(uboot_a),512K(uboot_b),256K(misc),1M(security),32M(boot_a),32M(boot_b),640M(system_a),640M(system_b),-(userdata)";
 	};
 
 	memory@0 {
@@ -29,6 +54,59 @@
 		/* Match stock U-Boot banks (OP-TEE hole at 0x03000000). */
 		reg = <0x00000000 0x03000000>,
 		      <0x03288000 0x0cd78000>;
+	};
+
+	reserved-memory {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
+		linux,cma {
+			compatible = "shared-dma-pool";
+			reusable;
+			/* 32 MiB fallback when bootargs omit cma=.
+			 * PicoKVM NFS boot passes cma=66M (labkit); that
+			 * skips this default. Do not use size-only 66 MiB
+			 * here: 0x4200000 is not pageblock-aligned, setup
+			 * fails after reserving, then CONFIG_CMA_SIZE
+			 * reserves a second 66 MiB and the kernel hangs
+			 * before "Linux version". */
+			size = <0x2000000>;
+			linux,cma-default;
+		};
+	};
+
+	/*
+	 * Stock rk-kernel.dtb (FIT on mmc1 boot_a): gpio3 PD2, always-on 3.3V
+	 * for the HDMI-in bridge. Without this the chip NAKs on I2C.
+	 */
+	vcc_hdmiin: vcc-hdmiin {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc_hdmiin";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		gpio = <&gpio3 RK_PD2 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		regulator-always-on;
+		regulator-boot-on;
+		pinctrl-names = "default";
+		pinctrl-0 = <&hdmiin_pwren>;
+	};
+
+	/*
+	 * Stock rk-kernel.dtb: pwm-backlight on PWM9 M1 (gpio1 PC5).
+	 * Period 100 us; default full on so the 1.54" panel lights
+	 * before userspace.
+	 */
+	backlight: backlight {
+		compatible = "pwm-backlight";
+		pwms = <&pwm9 0 100000 0>;
+		brightness-levels = <
+			0 8 16 32 48 64 80 96
+			112 128 144 160 176 192 208 224
+			240 255
+		>;
+		default-brightness-level = <17>;
 	};
 };
 
@@ -38,4 +116,247 @@
 
 &gmac {
 	status = "okay";
+};
+
+&rng {
+	status = "okay";
+};
+
+&crypto {
+	status = "okay";
+};
+
+&u2phy {
+	status = "okay";
+};
+
+&u2phy_otg {
+	status = "okay";
+};
+
+&usbdrd_dwc3 {
+	status = "okay";
+	/* USB-C is the KVM target port. otg+ID defaults to xhci host and
+	 * never registers a UDC, so HID/MSD never bind. */
+	dr_mode = "peripheral";
+};
+
+&i2c4 {
+	status = "okay";
+	/* Stock DTB uses 100 kHz. */
+	clock-frequency = <100000>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&i2c4m2_xfer>;
+
+	tc358743: hdmi-bridge@f {
+		compatible = "toshiba,tc358743";
+		reg = <0x0f>;
+		clocks = <&cru MCLK_REF_MIPI0>;
+		clock-names = "refclk";
+		assigned-clocks = <&cru MCLK_REF_MIPI0>;
+		assigned-clock-rates = <27000000>;
+		/* Stock: gpio2 PA3 active-low (not JetKVM gpio3 PC5). */
+		reset-gpios = <&gpio2 RK_PA3 GPIO_ACTIVE_LOW>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&mipi_refclk_out0 &hdmiin_rst>;
+
+		port {
+			tc358743_out: endpoint {
+				remote-endpoint = <&csi_dphy_input0>;
+				bus-type = <MEDIA_BUS_TYPE_CSI2_DPHY>;
+				clock-lanes = <0>;
+				data-lanes = <1 2 3 4>;
+				clock-noncontinuous;
+				link-frequencies = /bits/ 64 <297000000>;
+			};
+		};
+	};
+
+	/* Stock FIT: CST816S on the same I2C4 as the HDMI bridge, no IRQ. */
+	touchscreen@15 {
+		compatible = "hynitron,cst816s";
+		reg = <0x15>;
+		touchscreen-size-x = <240>;
+		touchscreen-size-y = <240>;
+	};
+};
+
+&csi2_dphy_hw {
+	status = "okay";
+};
+
+&csi2_dphy0 {
+	status = "okay";
+
+	ports {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		port@0 {
+			reg = <0>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			csi_dphy_input0: endpoint@0 {
+				reg = <0>;
+				remote-endpoint = <&tc358743_out>;
+				data-lanes = <1 2 3 4>;
+			};
+		};
+
+		port@1 {
+			reg = <1>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			csi_dphy_output: endpoint@0 {
+				reg = <0>;
+				remote-endpoint = <&mipi_csi2_input>;
+			};
+		};
+	};
+};
+
+&mipi0_csi2 {
+	status = "okay";
+
+	ports {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		port@0 {
+			reg = <0>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			mipi_csi2_input: endpoint@1 {
+				reg = <1>;
+				remote-endpoint = <&csi_dphy_output>;
+			};
+		};
+
+		port@1 {
+			reg = <1>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			mipi_csi2_output: endpoint@0 {
+				reg = <0>;
+				remote-endpoint = <&cif_mipi_in>;
+			};
+		};
+	};
+};
+
+&mpp_srv {
+	status = "okay";
+};
+
+&mpp_vcodec {
+	status = "okay";
+};
+
+&rkvenc {
+	status = "okay";
+};
+
+&rkvenc_pp {
+	status = "okay";
+};
+
+&rga {
+	status = "okay";
+};
+
+&rkcif {
+	status = "okay";
+};
+
+/*
+ * 1.54" 240x240 ST7789V. Stock FIT uses SPI0 M0 CLK/MOSI/CS0 only —
+ * do not take spi0m0_pins (that muxes MISO onto gpio1 PC3, the reset pin).
+ */
+&spi0 {
+	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&spi0m0_cs0 &spi0m0_clk_lcd &spi0m0_mosi_lcd>;
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	st7789v: fbtft@0 {
+		compatible = "sitronix,st7789v";
+		reg = <0>;
+		spi-max-frequency = <50000000>;
+		fps = <60>;
+		buswidth = <8>;
+		width = <240>;
+		height = <240>;
+		dc-gpios = <&gpio1 RK_PC4 GPIO_ACTIVE_HIGH>;
+		reset-gpios = <&gpio1 RK_PC3 GPIO_ACTIVE_LOW>;
+	};
+};
+
+&pwm9 {
+	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&pwm9m1_pins>;
+};
+
+/*
+ * Stock PicoKVM boots from SD (storagemedia=sd, mmc@ffaa0000 = mmcblk1).
+ * broken-cd matches the vendor DTB; do not mux sdmmc0_det (gpio3 PA1).
+ */
+&sdmmc {
+	status = "okay";
+	bus-width = <4>;
+	cap-sd-highspeed;
+	cap-mmc-highspeed;
+	disable-wp;
+	broken-cd;
+	no-sdio;
+	no-mmc;
+	max-frequency = <50000000>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&sdmmc0_clk &sdmmc0_cmd &sdmmc0_bus4>;
+};
+
+&rkcif_mipi_lvds {
+	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&mipi_pins>;
+
+	port {
+		cif_mipi_in: endpoint {
+			remote-endpoint = <&mipi_csi2_output>;
+		};
+	};
+};
+
+&pinctrl {
+	hdmiin {
+		hdmiin_rst: hdmiin-rst {
+			rockchip,pins =
+				/* gpio2_pa3 HDMI-in reset (GPIO) */
+				<2 RK_PA3 0 &pcfg_pull_none>;
+		};
+
+		hdmiin_pwren: hdmiin-pwren {
+			rockchip,pins =
+				/* gpio3_pd2 HDMI-in 3V3 enable (GPIO) */
+				<3 RK_PD2 0 &pcfg_pull_none>;
+		};
+	};
+
+	spi0 {
+		/* Stock FIT splits CLK/MOSI; omit MISO so PC3 stays GPIO reset. */
+		spi0m0_clk_lcd: spi0m0-clk-lcd {
+			rockchip,pins =
+				<1 RK_PC1 4 &pcfg_pull_none>;
+		};
+
+		spi0m0_mosi_lcd: spi0m0-mosi-lcd {
+			rockchip,pins =
+				<1 RK_PC2 6 &pcfg_pull_none>;
+		};
+	};
 };

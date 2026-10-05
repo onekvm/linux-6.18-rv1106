@@ -794,10 +794,19 @@ static unsigned tc358743_num_csi_lanes_needed(struct v4l2_subdev *sd)
 	struct tc358743_platform_data *pdata = &state->pdata;
 	u32 bits_pr_pixel =
 		(state->mbus_fmt_code == MEDIA_BUS_FMT_UYVY8_1X16) ?  16 : 24;
-	u32 bps = bt->width * bt->height * fps(bt) * bits_pr_pixel;
+	/* The CSI packet headers and line gaps need headroom beyond the active
+	 * pixel payload.  With no margin, 1280x960@60 selects two 594 Mbps lanes
+	 * and 1680x1050@60 selects three; CIF then sees truncated lines and never
+	 * completes a frame.  The board wires all four lanes. */
+	u64 bps = (u64)bt->width * bt->height * fps(bt) * bits_pr_pixel;
 	u32 bps_pr_lane = (pdata->refclk_hz / pdata->pll_prd) * pdata->pll_fbd;
 
-	return DIV_ROUND_UP(bps, bps_pr_lane);
+	/* Some transient HDMI timings exceed the CSI link budget.  Report only
+	 * lanes physically wired to this bridge; the receiver rejects larger
+	 * values before it can start any capture. */
+	return min_t(unsigned int,
+		DIV_ROUND_UP_ULL(bps * 110, (u64)bps_pr_lane * 100),
+		state->bus.num_data_lanes);
 }
 
 static void tc358743_set_csi(struct v4l2_subdev *sd)
@@ -1749,7 +1758,8 @@ static int tc358743_get_mbus_config(struct v4l2_subdev *sd,
 
 	/* Support for non-continuous CSI-2 clock is missing in the driver */
 	cfg->bus.mipi_csi2.flags = 0;
-	cfg->bus.mipi_csi2.num_data_lanes = state->csi_lanes_in_use;
+	cfg->bus.mipi_csi2.num_data_lanes = state->csi_lanes_in_use ?
+		state->csi_lanes_in_use : state->bus.num_data_lanes;
 
 	return 0;
 }
@@ -2244,7 +2254,7 @@ static int tc358743_probe(struct i2c_client *client)
 	if (err < 0)
 		goto err_hdl;
 
-	state->mbus_fmt_code = MEDIA_BUS_FMT_RGB888_1X24;
+	state->mbus_fmt_code = MEDIA_BUS_FMT_UYVY8_1X16;
 
 	sd->dev = &client->dev;
 

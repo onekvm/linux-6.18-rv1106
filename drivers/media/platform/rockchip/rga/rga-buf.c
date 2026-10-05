@@ -4,6 +4,7 @@
  * Author: Jacob Chen <jacob-chen@iotwrt.com>
  */
 
+#include <linux/minmax.h>
 #include <linux/pm_runtime.h>
 #include <linux/scatterlist.h>
 
@@ -11,6 +12,7 @@
 #include <media/v4l2-device.h>
 #include <media/v4l2-ioctl.h>
 #include <media/v4l2-mem2mem.h>
+#include <media/videobuf2-dma-contig.h>
 #include <media/videobuf2-dma-sg.h>
 #include <media/videobuf2-v4l2.h>
 
@@ -83,7 +85,16 @@ static int rga_buf_init(struct vb2_buffer *vb)
 	if (IS_ERR(f))
 		return PTR_ERR(f);
 
+	if (rga->no_mmu)
+		return 0;
+
 	n_desc = DIV_ROUND_UP(f->size, PAGE_SIZE);
+	/*
+	 * CIF/VEPU dmabufs are 16-row aligned and may still be the YUYV
+	 * plane length (3840×1088) after S_FMT NV16. Undersized PTE
+	 * arrays make fill_descriptors() fail with "Failed to map".
+	 */
+	n_desc = max_t(size_t, n_desc * 2, 2048);
 
 	rbuf->n_desc = n_desc;
 	rbuf->dma_desc = dma_alloc_coherent(rga->dev,
@@ -129,20 +140,34 @@ static int rga_buf_prepare(struct vb2_buffer *vb)
 			return -EINVAL;
 	}
 
-	for (i = 0; i < vb->num_planes; i++) {
-		vb2_set_plane_payload(vb, i, f->pix.plane_fmt[i].sizeimage);
-
-		/* Create local MMU table for RGA */
-		n_desc = fill_descriptors(&rbuf->dma_desc[curr_desc],
-					  rbuf->n_desc - curr_desc,
-					  vb2_dma_sg_plane_desc(vb, i));
-		if (n_desc < 0) {
-			v4l2_err(&ctx->rga->v4l2_dev,
-				 "Failed to map video buffer to RGA\n");
-			return n_desc;
+	if (ctx->rga->no_mmu) {
+		for (i = 0; i < vb->num_planes; i++) {
+			vb2_set_plane_payload(vb, i, f->pix.plane_fmt[i].sizeimage);
+			if (i == 0)
+				rbuf->dma_base = vb2_dma_contig_plane_dma_addr(vb, 0);
+			offsets[i] = 0;
 		}
-		offsets[i] = curr_desc << PAGE_SHIFT;
-		curr_desc += n_desc;
+	} else {
+		for (i = 0; i < vb->num_planes; i++) {
+			vb2_set_plane_payload(vb, i, f->pix.plane_fmt[i].sizeimage);
+
+			/* Create local MMU table for RGA */
+			n_desc = fill_descriptors(&rbuf->dma_desc[curr_desc],
+						  rbuf->n_desc - curr_desc,
+						  vb2_dma_sg_plane_desc(vb, i));
+			if (n_desc < 0) {
+				v4l2_err(&ctx->rga->v4l2_dev,
+					 "Failed to map video buffer to RGA\n");
+				return n_desc;
+			}
+			offsets[i] = curr_desc << PAGE_SHIFT;
+			curr_desc += n_desc;
+			if (i == 0) {
+				struct sg_table *sgt = vb2_dma_sg_plane_desc(vb, 0);
+
+				rbuf->dma_base = sg_dma_address(sgt->sgl);
+			}
+		}
 	}
 
 	/* Fill the remaining planes */
@@ -172,6 +197,8 @@ static void rga_buf_cleanup(struct vb2_buffer *vb)
 	struct rga_ctx *ctx = vb2_get_drv_priv(vb->vb2_queue);
 	struct rockchip_rga *rga = ctx->rga;
 
+	if (!rbuf->dma_desc)
+		return;
 	dma_free_coherent(rga->dev, rbuf->n_desc * sizeof(*rbuf->dma_desc),
 			  rbuf->dma_desc, rbuf->dma_desc_pa);
 }

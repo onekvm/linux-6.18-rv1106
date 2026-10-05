@@ -85,6 +85,8 @@ struct rockchip_rga {
 	struct clk *aclk;
 	struct clk *hclk;
 	struct rockchip_rga_version version;
+	/* RV1106 RGA2E has no internal MMU / IOMMU (librga: NA). */
+	bool no_mmu;
 
 	/* vfd lock */
 	struct mutex mutex;
@@ -109,6 +111,7 @@ struct rga_vb_buffer {
 	/* RGA MMU mapping for this buffer */
 	struct rga_dma_desc *dma_desc;
 	dma_addr_t dma_desc_pa;
+	dma_addr_t dma_base;
 	size_t n_desc;
 
 	/* Plane offsets of this buffer into the mapping */

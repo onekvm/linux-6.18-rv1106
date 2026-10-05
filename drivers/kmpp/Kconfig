@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+
+config ROCKCHIP_KMPP
+	bool "Rockchip kmpp VEPU540C encoder (RV1106)"
+	depends on ARCH_ROCKCHIP
+	depends on ARM
+	select DMA_SHARED_BUFFER
+	help
+	  Kernel Media Process Platform encoder for RV1106 VEPU540C.
+	  Creates /dev/mpp_service and /dev/vcodec. Frame buffers are
+	  CMA/dma-buf; rockit.ko is not required.

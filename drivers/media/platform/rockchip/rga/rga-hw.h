@@ -24,9 +24,23 @@
 #define RGA_SYS_CTRL 0x0000
 #define RGA_CMD_CTRL 0x0004
 #define RGA_CMD_BASE 0x0008
+#define RGA_STATUS 0x000c
 #define RGA_INT 0x0010
 #define RGA_MMU_CTRL0 0x0014
 #define RGA_VERSION_INFO 0x0028
+
+/*
+ * RGA2 SYS_CTRL (vendor rga2_drv.c / RK TRM):
+ * bit1 sw_cmd_mode = MASTER (CMD_CTRL.start fetches CMD_BASE)
+ * bit2 sw_auto_ckg, bit5 sw_auto_rst, bit6
+ * 0x20 is slave: start does not fetch. 0x22 is the RGA1 mainline value.
+ */
+#define RGA2_SYS_CTRL_RUN 0x66
+#define RGA1_SYS_CTRL_RUN 0x22
+#define RGA_INT_ERR 0x01
+#define RGA_INT_DONE 0x04
+#define RGA_INT_W1C 0xf0
+#define RGA_INT_ENABLE_ALL 0x700
 
 #define RGA_MODE_BASE_REG 0x0100
 #define RGA_MODE_MAX_REG 0x017C

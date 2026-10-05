@@ -22,6 +22,7 @@
 #include <media/v4l2-event.h>
 #include <media/v4l2-ioctl.h>
 #include <media/v4l2-mem2mem.h>
+#include <media/videobuf2-dma-contig.h>
 #include <media/videobuf2-dma-sg.h>
 #include <media/videobuf2-v4l2.h>
 
@@ -52,38 +53,60 @@ static void device_run(void *prv)
 	spin_unlock_irqrestore(&rga->ctrl_lock, flags);
 }
 
+static void rga_complete_job(struct rockchip_rga *rga, enum vb2_buffer_state state)
+{
+	struct rga_ctx *ctx = rga->curr;
+	struct vb2_v4l2_buffer *src, *dst;
+
+	if (!ctx)
+		return;
+
+	rga->curr = NULL;
+
+	src = v4l2_m2m_src_buf_remove(ctx->fh.m2m_ctx);
+	dst = v4l2_m2m_dst_buf_remove(ctx->fh.m2m_ctx);
+	if (!src || !dst)
+		return;
+
+	if (state == VB2_BUF_STATE_DONE) {
+		v4l2_m2m_buf_copy_metadata(src, dst, true);
+		dst->sequence = ctx->csequence++;
+	}
+
+	v4l2_m2m_buf_done(src, state);
+	v4l2_m2m_buf_done(dst, state);
+	v4l2_m2m_job_finish(rga->m2m_dev, ctx->fh.m2m_ctx);
+}
+
+static void rga_ack_int(struct rockchip_rga *rga, u32 raw)
+{
+	rga_write(rga, RGA_INT, raw | RGA_INT_W1C);
+}
+
 static irqreturn_t rga_isr(int irq, void *prv)
 {
 	struct rockchip_rga *rga = prv;
-	int intr;
+	u32 raw;
+	u32 intr;
+	static int logs;
 
-	intr = rga_read(rga, RGA_INT) & 0xf;
+	raw = rga_read(rga, RGA_INT);
+	intr = raw & 0xf;
+	rga_ack_int(rga, raw);
 
-	rga_mod(rga, RGA_INT, intr << 4, 0xf << 4);
-
-	if (intr & 0x04) {
-		struct vb2_v4l2_buffer *src, *dst;
-		struct rga_ctx *ctx = rga->curr;
-
-		WARN_ON(!ctx);
-
-		rga->curr = NULL;
-
-		src = v4l2_m2m_src_buf_remove(ctx->fh.m2m_ctx);
-		dst = v4l2_m2m_dst_buf_remove(ctx->fh.m2m_ctx);
-
-		WARN_ON(!src);
-		WARN_ON(!dst);
-
-		v4l2_m2m_buf_copy_metadata(src, dst, true);
-
-		dst->sequence = ctx->csequence++;
-
-		v4l2_m2m_buf_done(src, VB2_BUF_STATE_DONE);
-		v4l2_m2m_buf_done(dst, VB2_BUF_STATE_DONE);
-		v4l2_m2m_job_finish(rga->m2m_dev, ctx->fh.m2m_ctx);
+	if (logs < 4) {
+		logs++;
+		v4l2_info(&rga->v4l2_dev,
+			  "rga irq INT=0x%x SYS=0x%x STA=0x%x\n",
+			  raw, rga_read(rga, RGA_SYS_CTRL),
+			  rga_read(rga, RGA_STATUS));
 	}
 
+	if (!intr)
+		return IRQ_NONE;
+
+	rga_complete_job(rga, (intr & RGA_INT_ERR) ?
+			 VB2_BUF_STATE_ERROR : VB2_BUF_STATE_DONE);
 	return IRQ_HANDLED;
 }
 
@@ -101,7 +124,9 @@ queue_init(void *priv, struct vb2_queue *src_vq, struct vb2_queue *dst_vq)
 	src_vq->io_modes = VB2_MMAP | VB2_DMABUF;
 	src_vq->drv_priv = ctx;
 	src_vq->ops = &rga_qops;
-	src_vq->mem_ops = &vb2_dma_sg_memops;
+	/* RGA2E has no MMU: dest/src must be physically contiguous. */
+	src_vq->mem_ops = ctx->rga->no_mmu ? &vb2_dma_contig_memops :
+					     &vb2_dma_sg_memops;
 	src_vq->gfp_flags = __GFP_DMA32;
 	src_vq->buf_struct_size = sizeof(struct rga_vb_buffer);
 	src_vq->timestamp_flags = V4L2_BUF_FLAG_TIMESTAMP_COPY;
@@ -116,7 +141,8 @@ queue_init(void *priv, struct vb2_queue *src_vq, struct vb2_queue *dst_vq)
 	dst_vq->io_modes = VB2_MMAP | VB2_DMABUF;
 	dst_vq->drv_priv = ctx;
 	dst_vq->ops = &rga_qops;
-	dst_vq->mem_ops = &vb2_dma_sg_memops;
+	dst_vq->mem_ops = ctx->rga->no_mmu ? &vb2_dma_contig_memops :
+					     &vb2_dma_sg_memops;
 	dst_vq->gfp_flags = __GFP_DMA32;
 	dst_vq->buf_struct_size = sizeof(struct rga_vb_buffer);
 	dst_vq->timestamp_flags = V4L2_BUF_FLAG_TIMESTAMP_COPY;
@@ -811,6 +837,8 @@ static int rga_probe(struct platform_device *pdev)
 		return -ENOMEM;
 
 	rga->dev = &pdev->dev;
+	rga->no_mmu = of_property_read_bool(pdev->dev.of_node,
+					    "rockchip,no-internal-mmu");
 	spin_lock_init(&rga->ctrl_lock);
 	mutex_init(&rga->mutex);
 
@@ -876,8 +904,9 @@ static int rga_probe(struct platform_device *pdev)
 	rga->version.major = (rga_read(rga, RGA_VERSION_INFO) >> 24) & 0xFF;
 	rga->version.minor = (rga_read(rga, RGA_VERSION_INFO) >> 20) & 0x0F;
 
-	v4l2_info(&rga->v4l2_dev, "HW Version: 0x%02x.%02x\n",
-		  rga->version.major, rga->version.minor);
+	v4l2_info(&rga->v4l2_dev, "HW Version: 0x%02x.%02x%s\n",
+		  rga->version.major, rga->version.minor,
+		  rga->no_mmu ? " (phys addrs, no MMU)" : "");
 
 	pm_runtime_put(rga->dev);
 
@@ -893,7 +922,8 @@ static int rga_probe(struct platform_device *pdev)
 	def_frame.stride = (def_frame.width * def_frame.fmt->depth) >> 3;
 	def_frame.size = def_frame.stride * def_frame.height;
 
-	ret = video_register_device(vfd, VFL_TYPE_VIDEO, -1);
+	/* Stay off video0–15 so RKCIF keeps stream_cif_mipi_id0 as /dev/video0. */
+	ret = video_register_device(vfd, VFL_TYPE_VIDEO, 16);
 	if (ret) {
 		v4l2_err(&rga->v4l2_dev, "Failed to register video device\n");
 		goto free_dma;

@@ -1,0 +1,50 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+/*
+ * RV1106 kmpp VEPU540C (vendor 5.10 rv1106.dtsi, no IOMMU / DVBM).
+ */
+
+&soc {
+	rkvenc: rkvenc@ffa50000 {
+		compatible = "rockchip,rkv-encoder-rv1106";
+		reg = <0xffa50000 0x6000>;
+		interrupts = <GIC_SPI 107 IRQ_TYPE_LEVEL_HIGH>;
+		interrupt-names = "irq_rkvenc";
+		clocks = <&cru ACLK_VEPU>, <&cru HCLK_VEPU>, <&cru CLK_CORE_VEPU>;
+		clock-names = "aclk_vcodec", "hclk_vcodec", "clk_core";
+		rockchip,normal-rates = <300000000>, <0>, <410000000>;
+		assigned-clocks = <&cru ACLK_VEPU>, <&cru CLK_CORE_VEPU>;
+		assigned-clock-rates = <300000000>, <400000000>;
+		resets = <&cru SRST_A_VEPU>, <&cru SRST_H_VEPU>, <&cru SRST_CORE_VEPU>;
+		reset-names = "video_a", "video_h", "video_core";
+		rockchip,srv = <&mpp_srv>;
+		rockchip,taskqueue-node = <0>;
+		status = "disabled";
+	};
+
+	rkvenc_pp: rkvenc-pp@ffa60000 {
+		compatible = "rockchip,rkvenc-pp-rv1106";
+		reg = <0xffa60000 0x900>;
+		interrupts = <GIC_SPI 108 IRQ_TYPE_LEVEL_HIGH>;
+		interrupt-names = "irq_rkvenc_pp";
+		clocks = <&cru ACLK_VEPU_PP>, <&cru HCLK_VEPU_PP>;
+		clock-names = "aclk_vepu_pp", "hclk_vepu_pp";
+		assigned-clocks = <&cru ACLK_VEPU_PP>, <&cru HCLK_VEPU_PP>;
+		resets = <&cru SRST_A_VEPU_PP>, <&cru SRST_H_VEPU_PP>;
+		rockchip,srv = <&mpp_srv>;
+		rockchip,taskqueue-node = <1>;
+		status = "disabled";
+	};
+};
+
+/ {
+	mpp_srv: mpp-srv {
+		compatible = "rockchip,mpp-service";
+		rockchip,taskqueue-count = <2>;
+		status = "disabled";
+	};
+
+	mpp_vcodec: mpp-vcodec {
+		compatible = "rockchip,vcodec";
+		status = "disabled";
+	};
+};

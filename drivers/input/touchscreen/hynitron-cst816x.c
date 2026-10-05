@@ -14,6 +14,7 @@
 #include <linux/unaligned.h>
 #include <linux/interrupt.h>
 #include <linux/module.h>
+#include <linux/workqueue.h>
 
 #define CST816X_RD_REG		0x01
 #define CST816X_NUM_KEYS	5
@@ -29,6 +30,8 @@ struct cst816x_priv {
 	struct i2c_client *client;
 	struct gpio_desc *reset;
 	struct input_dev *input;
+	struct delayed_work poll;
+	bool polling;
 	unsigned int keycode[CST816X_NUM_KEYS];
 	unsigned int keycodemax;
 };
@@ -85,7 +88,8 @@ static int cst816x_i2c_read_register(struct cst816x_priv *priv, u8 reg,
 	ret = i2c_transfer(priv->client->adapter, xfer, ARRAY_SIZE(xfer));
 	if (ret != ARRAY_SIZE(xfer)) {
 		error = ret < 0 ? ret : -EIO;
-		dev_err(&priv->client->dev, "i2c rx err: %d\n", error);
+		if (!priv->polling)
+			dev_err(&priv->client->dev, "i2c rx err: %d\n", error);
 		return error;
 	}
 
@@ -165,27 +169,41 @@ static void cst816x_reset(struct cst816x_priv *priv)
 	msleep(100);
 }
 
+static void cst816x_report(struct cst816x_priv *priv, struct cst816x_touch *tch)
+{
+	input_report_abs(priv->input, ABS_X, tch->abs_x);
+	input_report_abs(priv->input, ABS_Y, tch->abs_y);
+
+	if (tch->gest && priv->keycodemax)
+		input_report_key(priv->input,
+				 priv->keycode[cst816x_gest_idx(tch->gest)],
+				 tch->active);
+
+	input_report_key(priv->input, BTN_TOUCH, tch->active);
+	input_sync(priv->input);
+}
+
 static irqreturn_t cst816x_irq_cb(int irq, void *cookie)
 {
 	struct cst816x_priv *priv = cookie;
 	struct cst816x_touch tch;
 
-	if (!cst816x_process_touch(priv, &tch))
-		return IRQ_HANDLED;
-
-	input_report_abs(priv->input, ABS_X, tch.abs_x);
-	input_report_abs(priv->input, ABS_Y, tch.abs_y);
-
-	if (tch.gest)
-		input_report_key(priv->input,
-				 priv->keycode[cst816x_gest_idx(tch.gest)],
-				 tch.active);
-
-	input_report_key(priv->input, BTN_TOUCH, tch.active);
-
-	input_sync(priv->input);
+	if (cst816x_process_touch(priv, &tch))
+		cst816x_report(priv, &tch);
 
 	return IRQ_HANDLED;
+}
+
+static void cst816x_poll_work(struct work_struct *work)
+{
+	struct cst816x_priv *priv = container_of(work, struct cst816x_priv,
+						 poll.work);
+	struct cst816x_touch tch;
+
+	if (cst816x_process_touch(priv, &tch))
+		cst816x_report(priv, &tch);
+
+	schedule_delayed_work(&priv->poll, msecs_to_jiffies(20));
 }
 
 static int cst816x_probe(struct i2c_client *client)
@@ -199,6 +217,7 @@ static int cst816x_probe(struct i2c_client *client)
 		return -ENOMEM;
 
 	priv->client = client;
+	i2c_set_clientdata(client, priv);
 
 	priv->reset = devm_gpiod_get_optional(dev, "reset", GPIOD_OUT_HIGH);
 	if (IS_ERR(priv->reset))
@@ -216,13 +235,31 @@ static int cst816x_probe(struct i2c_client *client)
 	if (error)
 		return dev_err_probe(dev, error, "input register failed\n");
 
-	error = devm_request_threaded_irq(dev, client->irq,
-					  NULL, cst816x_irq_cb, IRQF_ONESHOT,
-					  dev_driver_string(dev), priv);
-	if (error)
-		return dev_err_probe(dev, error, "irq request failed\n");
+	if (client->irq > 0) {
+		error = devm_request_threaded_irq(dev, client->irq,
+						  NULL, cst816x_irq_cb,
+						  IRQF_ONESHOT,
+						  dev_driver_string(dev),
+						  priv);
+		if (error)
+			return dev_err_probe(dev, error, "irq request failed\n");
+	} else {
+		/* PicoKVM stock DTB has no INT pin; poll I2C. */
+		priv->polling = true;
+		INIT_DELAYED_WORK(&priv->poll, cst816x_poll_work);
+		schedule_delayed_work(&priv->poll, msecs_to_jiffies(20));
+		dev_info(dev, "no IRQ, polling CST816S\n");
+	}
 
 	return 0;
+}
+
+static void cst816x_remove(struct i2c_client *client)
+{
+	struct cst816x_priv *priv = i2c_get_clientdata(client);
+
+	if (priv && priv->polling)
+		cancel_delayed_work_sync(&priv->poll);
 }
 
 static const struct i2c_device_id cst816x_id[] = {
@@ -244,6 +281,7 @@ static struct i2c_driver cst816x_driver = {
 	},
 	.id_table = cst816x_id,
 	.probe = cst816x_probe,
+	.remove = cst816x_remove,
 };
 
 module_i2c_driver(cst816x_driver);

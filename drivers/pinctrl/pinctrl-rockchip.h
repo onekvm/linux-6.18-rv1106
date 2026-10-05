@@ -185,6 +185,7 @@
 
 enum rockchip_pinctrl_type {
 	PX30,
+	RV1106,
 	RV1108,
 	RV1126,
 	RK2928,
@@ -291,6 +292,8 @@ struct rockchip_drv {
  * @dev: the pinctrl device bind to the bank
  * @reg_base: register base of the gpio bank
  * @regmap_pull: optional separate register for additional pull settings
+ * @regmap_ioc: optional per-bank IO control regmap, for SoCs where each
+ *	    bank has its own IOC block
  * @clk: clock of the gpio bank
  * @db_clk: clock of the gpio debounce
  * @irq: interrupt of the gpio bank
@@ -319,6 +322,7 @@ struct rockchip_pin_bank {
 	struct device			*dev;
 	void __iomem			*reg_base;
 	struct regmap			*regmap_pull;
+	struct regmap			*regmap_ioc;
 	struct clk			*clk;
 	struct clk			*db_clk;
 	int				irq;

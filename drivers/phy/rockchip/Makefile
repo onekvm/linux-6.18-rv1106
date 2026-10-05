@@ -1,4 +1,8 @@
 # SPDX-License-Identifier: GPL-2.0
+CFLAGS_phy-rockchip-csi2-dphy.o += -include linux/rk-v4l2-compat.h
+CFLAGS_phy-rockchip-csi2-dphy-hw.o += -include linux/rk-v4l2-compat.h
+obj-$(CONFIG_PHY_ROCKCHIP_CSI2_DPHY)	+= phy-rockchip-csi2-dphy-hw.o \
+					   phy-rockchip-csi2-dphy.o
 obj-$(CONFIG_PHY_ROCKCHIP_DP)		+= phy-rockchip-dp.o
 obj-$(CONFIG_PHY_ROCKCHIP_DPHY_RX0)     += phy-rockchip-dphy-rx0.o
 obj-$(CONFIG_PHY_ROCKCHIP_EMMC)		+= phy-rockchip-emmc.o

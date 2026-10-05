@@ -117,6 +117,9 @@ static void rga_cmd_set_src_addr(struct rga_ctx *ctx, dma_addr_t dma_addr)
 	u32 *dest = rga->cmdbuf_virt;
 	unsigned int reg;
 
+	if (rga->no_mmu)
+		return;
+
 	reg = RGA_MMU_SRC_BASE - RGA_MODE_BASE_REG;
 	dest[reg >> 2] = dma_addr >> 4;
 
@@ -130,6 +133,9 @@ static void rga_cmd_set_src1_addr(struct rga_ctx *ctx, dma_addr_t dma_addr)
 	u32 *dest = rga->cmdbuf_virt;
 	unsigned int reg;
 
+	if (rga->no_mmu)
+		return;
+
 	reg = RGA_MMU_SRC1_BASE - RGA_MODE_BASE_REG;
 	dest[reg >> 2] = dma_addr >> 4;
 
@@ -142,6 +148,9 @@ static void rga_cmd_set_dst_addr(struct rga_ctx *ctx, dma_addr_t dma_addr)
 	struct rockchip_rga *rga = ctx->rga;
 	u32 *dest = rga->cmdbuf_virt;
 	unsigned int reg;
+
+	if (rga->no_mmu)
+		return;
 
 	reg = RGA_MMU_DST_BASE - RGA_MODE_BASE_REG;
 	dest[reg >> 2] = dma_addr >> 4;
@@ -309,13 +318,13 @@ static void rga_cmd_set_trans_info(struct rga_ctx *ctx)
 	dest[(RGA_DST_INFO - RGA_MODE_BASE_REG) >> 2] = dst_info.val;
 }
 
-static void rga_cmd_set_src_info(struct rga_ctx *ctx,
-				 struct rga_addr_offset *offset)
+static void rga_cmd_set_src_info(struct rga_ctx *ctx, struct rga_vb_buffer *src)
 {
 	struct rga_corners_addr_offset src_offsets;
 	struct rockchip_rga *rga = ctx->rga;
 	u32 *dest = rga->cmdbuf_virt;
 	unsigned int src_h, src_w, src_x, src_y;
+	u32 base = rga->no_mmu ? lower_32_bits(src->dma_base) : 0;
 
 	src_h = ctx->in.crop.height;
 	src_w = ctx->in.crop.width;
@@ -325,19 +334,18 @@ static void rga_cmd_set_src_info(struct rga_ctx *ctx,
 	/*
 	 * Calculate the source framebuffer base address with offset pixel.
 	 */
-	src_offsets = rga_get_addr_offset(&ctx->in, offset,
+	src_offsets = rga_get_addr_offset(&ctx->in, &src->offset,
 					  src_x, src_y, src_w, src_h);
 
 	dest[(RGA_SRC_Y_RGB_BASE_ADDR - RGA_MODE_BASE_REG) >> 2] =
-		src_offsets.left_top.y_off;
+		base + src_offsets.left_top.y_off;
 	dest[(RGA_SRC_CB_BASE_ADDR - RGA_MODE_BASE_REG) >> 2] =
-		src_offsets.left_top.u_off;
+		base + src_offsets.left_top.u_off;
 	dest[(RGA_SRC_CR_BASE_ADDR - RGA_MODE_BASE_REG) >> 2] =
-		src_offsets.left_top.v_off;
+		base + src_offsets.left_top.v_off;
 }
 
-static void rga_cmd_set_dst_info(struct rga_ctx *ctx,
-				 struct rga_addr_offset *offset)
+static void rga_cmd_set_dst_info(struct rga_ctx *ctx, struct rga_vb_buffer *dst)
 {
 	struct rga_addr_offset *dst_offset;
 	struct rga_corners_addr_offset offsets;
@@ -346,6 +354,7 @@ static void rga_cmd_set_dst_info(struct rga_ctx *ctx,
 	unsigned int dst_h, dst_w, dst_x, dst_y;
 	unsigned int mir_mode = 0;
 	unsigned int rot_mode = 0;
+	u32 base = rga->no_mmu ? lower_32_bits(dst->dma_base) : 0;
 
 	dst_h = ctx->out.crop.height;
 	dst_w = ctx->out.crop.width;
@@ -375,15 +384,15 @@ static void rga_cmd_set_dst_info(struct rga_ctx *ctx,
 	/*
 	 * Configure the dest framebuffer base address with pixel offset.
 	 */
-	offsets = rga_get_addr_offset(&ctx->out, offset, dst_x, dst_y, dst_w, dst_h);
+	offsets = rga_get_addr_offset(&ctx->out, &dst->offset, dst_x, dst_y, dst_w, dst_h);
 	dst_offset = rga_lookup_draw_pos(&offsets, rot_mode, mir_mode);
 
 	dest[(RGA_DST_Y_RGB_BASE_ADDR - RGA_MODE_BASE_REG) >> 2] =
-		dst_offset->y_off;
+		base + dst_offset->y_off;
 	dest[(RGA_DST_CB_BASE_ADDR - RGA_MODE_BASE_REG) >> 2] =
-		dst_offset->u_off;
+		base + dst_offset->u_off;
 	dest[(RGA_DST_CR_BASE_ADDR - RGA_MODE_BASE_REG) >> 2] =
-		dst_offset->v_off;
+		base + dst_offset->v_off;
 }
 
 static void rga_cmd_set_mode(struct rga_ctx *ctx)
@@ -426,8 +435,8 @@ static void rga_cmd_set(struct rga_ctx *ctx,
 	rga_cmd_set_dst_addr(ctx, dst->dma_desc_pa);
 	rga_cmd_set_mode(ctx);
 
-	rga_cmd_set_src_info(ctx, &src->offset);
-	rga_cmd_set_dst_info(ctx, &dst->offset);
+	rga_cmd_set_src_info(ctx, src);
+	rga_cmd_set_dst_info(ctx, dst);
 	rga_cmd_set_trans_info(ctx);
 
 	rga_write(rga, RGA_CMD_BASE, rga->cmdbuf_phy);
@@ -444,11 +453,20 @@ void rga_hw_start(struct rockchip_rga *rga,
 
 	rga_cmd_set(ctx, src, dst);
 
+	/*
+	 * RGA2 (HW 0x03.xx) needs MASTER 0x66. The earlier no-MMU path
+	 * wrote 0x20 after treating bit1 as MMU-enable; on RGA2 that bit
+	 * is sw_cmd_mode, so CMD_CTRL.start never fetched the cmdbuf and
+	 * userspace poll() never saw POLLIN. MMU stays off via MMU_CTRL0
+	 * and the skipped MMU_* command words.
+	 */
 	rga_write(rga, RGA_SYS_CTRL, 0x00);
-
-	rga_write(rga, RGA_SYS_CTRL, 0x22);
-
-	rga_write(rga, RGA_INT, 0x600);
-
+	if (rga->no_mmu)
+		rga_write(rga, RGA_MMU_CTRL0, 0);
+	rga_write(rga, RGA_CMD_BASE, rga->cmdbuf_phy);
+	rga_write(rga, RGA_SYS_CTRL,
+		  rga->version.major >= 3 ? RGA2_SYS_CTRL_RUN : RGA1_SYS_CTRL_RUN);
+	/* Status bits[3:0] only latch if enables[10:8] are set first. */
+	rga_write(rga, RGA_INT, rga_read(rga, RGA_INT) | RGA_INT_ENABLE_ALL);
 	rga_write(rga, RGA_CMD_CTRL, 0x1);
 }

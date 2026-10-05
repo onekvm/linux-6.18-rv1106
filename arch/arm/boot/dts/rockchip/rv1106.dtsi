@@ -55,6 +55,38 @@
 			compatible = "arm,cortex-a7";
 			reg = <0xf00>;
 			clocks = <&cru ARMCLK>;
+			operating-points-v2 = <&cpu0_opp_table>;
+		};
+	};
+
+	/*
+	 * Clock-only OPPs (no vdd_cpu). 1.2 GHz muxes to cpu_pvtpll; 816
+	 * and below stay on APLL. Do not assigned-clocks ARMCLK to 1.2G.
+	 */
+	cpu0_opp_table: opp-table {
+		compatible = "operating-points-v2";
+		opp-shared;
+
+		opp-408000000 {
+			opp-hz = /bits/ 64 <408000000>;
+			clock-latency-ns = <40000>;
+		};
+		opp-600000000 {
+			opp-hz = /bits/ 64 <600000000>;
+			clock-latency-ns = <40000>;
+		};
+		opp-816000000 {
+			opp-hz = /bits/ 64 <816000000>;
+			clock-latency-ns = <40000>;
+			opp-suspend;
+		};
+		opp-1104000000 {
+			opp-hz = /bits/ 64 <1104000000>;
+			clock-latency-ns = <40000>;
+		};
+		opp-1200000000 {
+			opp-hz = /bits/ 64 <1200000000>;
+			clock-latency-ns = <40000>;
 		};
 	};
 
@@ -145,14 +177,14 @@
 			clocks = <&cru PCLK_GPIO4>, <&cru DBCLK_GPIO4>;
 			gpio-controller;
 			#gpio-cells = <2>;
-			gpio-ranges = <&pinctrl 0 128 32>;
+			gpio-ranges = <&pinctrl 0 128 24>;
 			interrupt-controller;
 			#interrupt-cells = <2>;
 			rockchip,grf = <&gpio4_ioc>;
 		};
 	};
 
-	soc {
+	soc: soc {
 		compatible = "simple-bus";
 		#address-cells = <1>;
 		#size-cells = <1>;
@@ -364,6 +396,21 @@
 			clocks = <&cru ACLK_DMAC>;
 			clock-names = "apb_pclk";
 			arm,pl330-periph-burst;
+		};
+
+		crypto: crypto@ff440000 {
+			compatible = "rockchip,crypto-v3";
+			reg = <0xff440000 0x2000>;
+			interrupts = <GIC_SPI 15 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&cru ACLK_CRYPTO>, <&cru HCLK_CRYPTO>,
+				 <&cru CLK_CORE_CRYPTO>, <&cru CLK_PKA_CRYPTO>;
+			clock-names = "aclk", "hclk", "sclk", "pka";
+			assigned-clocks = <&cru CLK_CORE_CRYPTO>,
+					  <&cru CLK_PKA_CRYPTO>;
+			assigned-clock-rates = <200000000>, <200000000>;
+			resets = <&cru SRST_CORE_CRYPTO>;
+			reset-names = "crypto-rst";
+			status = "disabled";
 		};
 
 		rng: rng@ff448000 {
@@ -610,6 +657,28 @@
 			ranges = <0 0xff6c0000 0x40000>;
 		};
 
+		/*
+		 * RGA2E. Vendor 5.10 calls it rockchip,rga2_core0. Mainline
+		 * V4L2 rga is the rk3288/rk3399 command engine; clock/reset
+		 * names match that driver. No IOMMU on this block.
+		 */
+		rga: rga@ff980000 {
+			compatible = "rockchip,rk3399-rga";
+			reg = <0xff980000 0x1000>;
+			interrupts = <GIC_SPI 87 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&cru ACLK_RGA2E>, <&cru HCLK_RGA2E>,
+				 <&cru CLK_CORE_RGA2E>;
+			clock-names = "aclk", "hclk", "sclk";
+			resets = <&cru SRST_CORE_RGA2E>, <&cru SRST_A_RGA2E>,
+				 <&cru SRST_H_RGA2E>;
+			reset-names = "core", "axi", "ahb";
+			assigned-clocks = <&cru CLK_CORE_RGA2E>;
+			assigned-clock-rates = <400000000>;
+			/* librga: IOMMU is NA on RV1106/RV1103 RGA2E. */
+			rockchip,no-internal-mmu;
+			status = "disabled";
+		};
+
 		sdmmc1: mmc@ff9a0000 {
 			compatible = "rockchip,rv1106-dw-mshc", "rockchip,rk3288-dw-mshc";
 			reg = <0xff9a0000 0x4000>;
@@ -745,3 +814,5 @@
 };
 
 #include "rv1106-pinctrl.dtsi"
+#include "rv1106-vicap.dtsi"
+#include "rv1106-kmpp.dtsi"

@@ -6,6 +6,16 @@
 #ifndef __SOC_ROCKCHIP_PM_DOMAINS_H__
 #define __SOC_ROCKCHIP_PM_DOMAINS_H__
 
+#include <linux/types.h>
+
+struct device;
+
+/* RV1106 VEPU idle handshake; 6.18 pmu driver has no equivalent. */
+static inline int rockchip_pmu_idle_request(struct device *dev, bool idle)
+{
+	return 0;
+}
+
 #ifdef CONFIG_ROCKCHIP_PM_DOMAINS
 
 int rockchip_pmu_block(void);

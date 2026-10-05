@@ -1,0 +1,14 @@
+# kmpp (OneKVM in-tree)
+
+C source from https://github.com/ticklab/rockchip-kmpp (VEPU540C / RV1106),
+ported to Linux 6.18:
+
+- `class_create()` one-arg, `pde_data()`, platform `.remove` is `void`
+- no `linux/dma-iommu.h`; unused vendor DVFS/IPA headers dropped
+- `kmpp_mpibuf.c` replaces rockit.ko `mpi_buf` / `mpidev` ops (CMA dma-buf)
+
+Vendor 5.10 `kmpp.ko` (asm) will not load on 6.18. Do not compile `mpp_rkvenc2.c`.
+
+Stream output matches JetKVM/rockit: discrete bufpool MBs (`cir_flag=0`).
+Do not set `-DUSE_RING_BUF` (that path needs rockit `vsm`; without it
+`vcodec_vsm_buf_fn is NULL` and encode dies).
